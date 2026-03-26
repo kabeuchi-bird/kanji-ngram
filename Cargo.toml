@@ -1,0 +1,8 @@
+[package]
+name = "kanji_ngram"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "kanji_ngram"
+path = "src/main.rs"
