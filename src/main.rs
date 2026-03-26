@@ -122,6 +122,7 @@ fn main() {
 
     // ── n-gram カウント ─────────────────────────────────────────────────────
     let counts = count_ngrams(&chars, n);
+    let window_count = chars.len() - n + 1; // 全 n-gram 総数（頻度の分母）
 
     // ── ソート: 出現回数 降順、同数は辞書順 ──────────────────────────────
     let mut sorted: Vec<(String, u64)> = counts.into_iter().collect();
@@ -163,8 +164,8 @@ fn main() {
     csv_wtr.write_record(["n-gram", "出現回数", "出現頻度(%)"]).unwrap();
 
     for (ngram, count) in output_slice {
-        let freq = if total_tokens > 0 {
-            (*count as f64 / total_tokens as f64) * 100.0
+        let freq = if window_count > 0 {
+            (*count as f64 / window_count as f64) * 100.0
         } else {
             0.0
         };
@@ -173,7 +174,6 @@ fn main() {
     csv_wtr.flush().unwrap();
 
     // ── 実行結果サマリー ────────────────────────────────────────────────────
-    let window_count = chars.len() - n + 1;
     eprintln!();
     eprintln!("=== 完了 ===");
     eprintln!("n                   : {}", n);
@@ -298,13 +298,14 @@ mod tests {
 
     #[test]
     fn test_frequency_calculation() {
-        // "漢字漢字" → bigram: 漢字(2), 字漢(1) → total=3
+        // "漢字漢字" → 4文字 → bigram window_count=3（全n-gram総数が分母）
+        // 漢字含むbigram: 漢字(2), 字漢(1)
         let chars: Vec<char> = "漢字漢字".chars().collect();
         let counts = count_ngrams(&chars, 2);
-        let total: u64 = counts.values().sum();
-        assert_eq!(total, 3);
+        let window_count = chars.len() - 2 + 1; // =3
+        assert_eq!(window_count, 3);
 
-        let freq = *counts.get("漢字").unwrap() as f64 / total as f64 * 100.0;
+        let freq = *counts.get("漢字").unwrap() as f64 / window_count as f64 * 100.0;
         assert!((freq - 66.6667).abs() < 0.001);
     }
 
