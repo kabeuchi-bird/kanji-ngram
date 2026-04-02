@@ -39,6 +39,7 @@ kanji_ngram/
 set CORPUS=corpus.txt   ← コーパスファイルのパスを指定（必須）
 set N=3                 ← n-gram のサイズ（省略時: 3）
 set TOP_K=              ← 上位何件まで出力するか（省略時: 全件）
+set ENCODING=utf-8-bom  ← 出力 CSV の文字コード（省略時: utf-8-bom）
 ```
 
 ### Linux
@@ -54,6 +55,7 @@ chmod +x run.sh         # 初回のみ実行権限を付与
 CORPUS="corpus.txt"     # コーパスファイルのパスを指定（必須）
 N=3                     # n-gram のサイズ（省略時: 3）
 TOP_K=""                # 上位何件まで出力するか（空欄で全件）
+ENCODING="utf-8"        # 出力 CSV の文字コード
 ```
 
 ---
@@ -64,7 +66,7 @@ TOP_K=""                # 上位何件まで出力するか（空欄で全件）
 
 ```
 # 書式
-kanji_ngram <コーパスファイル> [n] [top_k]
+kanji_ngram <コーパスファイル> [n] [top_k] [--encoding <enc>]
 
 # 例: trigram（デフォルト）、全件出力
 kanji_ngram corpus.txt
@@ -74,7 +76,30 @@ kanji_ngram corpus.txt 2
 
 # 例: trigram、上位 100 件のみ出力
 kanji_ngram corpus.txt 3 100
+
+# 例: trigram、UTF-8 BOM あり（Excel 向け）
+kanji_ngram corpus.txt 3 --encoding utf-8-bom
+
+# 例: trigram、Shift-JIS 出力
+kanji_ngram corpus.txt 3 --encoding shift-jis
 ```
+
+---
+
+## 出力 CSV の文字コード
+
+`--encoding` オプション（またはスクリプトの `ENCODING` 変数）で指定します。
+
+| 値 | 説明 | 用途 |
+|---|---|---|
+| `utf-8` | UTF-8（BOM なし） | Linux / Mac、テキストエディタ全般 |
+| `utf-8-bom` | UTF-8（BOM あり） | **Windows の Excel で直接開く場合（推奨）** |
+| `shift-jis` | Shift-JIS（CP932） | 旧来の日本語 Windows 環境・レガシーシステム連携 |
+
+> **Excel on Windows について**  
+> Excel は BOM なしの UTF-8 CSV を開くと文字化けすることがあります。  
+> `utf-8-bom` を使用すると Excel が自動的に UTF-8 と認識し、正しく表示されます。  
+> `run.bat` のデフォルトは `utf-8-bom` に設定済みです。
 
 ---
 
@@ -132,9 +157,11 @@ n=1 のとき、ウィンドウは1文字になるため「漢字を含むか」
 
 === 完了 ===
 n                   : 3
+全 n-gram 総数        : 204830
 漢字含む n-gram 種類数: 18472
 漢字含む n-gram 総数  : 98341
 出力件数            : 100
+文字コード          : utf-8-bom
 出力ファイル        : corpus_ngram3_top100.csv
 ```
 
