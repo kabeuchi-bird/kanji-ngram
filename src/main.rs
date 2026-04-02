@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::env;
 use std::fs;
-use std::io::BufWriter;
 use std::path::Path;
 use std::process;
 
@@ -60,12 +59,18 @@ fn count_ngrams(chars: &[char], n: usize) -> HashMap<String, u64> {
 
 // ── ヘルプ表示 ────────────────────────────────────────────────────────────────
 fn print_usage(program: &str) {
-    eprintln!("Usage: {} <corpus_file> [n] [top_k]", program);
+    eprintln!("Usage: {} <corpus_file> [n] [top_k] [--encoding <enc>]", program);
     eprintln!();
     eprintln!("Arguments:");
     eprintln!("  corpus_file   テキストコーパスファイル（必須、UTF-8）");
     eprintln!("  n             n-gram のサイズ（省略時: 3）");
     eprintln!("  top_k         出力する上位件数（省略時: 全件）");
+    eprintln!();
+    eprintln!("Options:");
+    eprintln!("  --encoding <enc>  出力 CSV の文字コード（省略時: utf-8）");
+    eprintln!("                    utf-8       UTF-8（BOM なし）");
+    eprintln!("                    utf-8-bom   UTF-8（BOM あり、Excel 推奨）");
+    eprintln!("                    shift-jis   Shift-JIS（CP932）");
     eprintln!();
     eprintln!("Output:");
     eprintln!("  <corpus_dir>/<corpus_stem>_ngram<n>.csv");
@@ -73,7 +78,30 @@ fn print_usage(program: &str) {
 }
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
+    // ── --encoding フラグを先に抽出し、残りを位置引数として扱う ──────────────
+    let raw_args: Vec<String> = env::args().collect();
+    let mut encoding = String::from("utf-8");
+    let mut args: Vec<String> = Vec::with_capacity(raw_args.len());
+
+    let mut i = 0;
+    while i < raw_args.len() {
+        if raw_args[i] == "--encoding" {
+            match raw_args.get(i + 1) {
+                Some(enc) => {
+                    encoding = enc.clone();
+                    i += 2;
+                }
+                None => {
+                    eprintln!("Error: --encoding オプションには値が必要です");
+                    process::exit(1);
+                }
+            }
+        } else {
+            args.push(raw_args[i].clone());
+            i += 1;
+        }
+    }
+
     let program = &args[0];
 
     // ── 引数パース ──────────────────────────────────────────────────────────
@@ -153,25 +181,48 @@ fn main() {
         .unwrap_or_else(|| Path::new("."))
         .join(&filename);
 
-    // ── CSV 書き出し（csv クレートで RFC 4180 準拠）──────────────────────────
-    let file = fs::File::create(&output_path).unwrap_or_else(|e| {
-        eprintln!("Error: 出力ファイルを作成できません '{}': {}", output_path.display(), e);
+    // ── CSV をメモリに書き出し ────────────────────────────────────────────
+    let mut csv_buf: Vec<u8> = Vec::new();
+    {
+        let mut csv_wtr = csv::Writer::from_writer(&mut csv_buf);
+        csv_wtr.write_record(["n-gram", "出現回数", "出現頻度(%)"]).unwrap();
+        for (ngram, count) in output_slice {
+            let freq = if window_count > 0 {
+                (*count as f64 / window_count as f64) * 100.0
+            } else {
+                0.0
+            };
+            csv_wtr.write_record([ngram.as_str(), &count.to_string(), &format!("{:.4}", freq)]).unwrap();
+        }
+        csv_wtr.flush().unwrap();
+    }
+
+    // ── 文字コード変換して書き出し ────────────────────────────────────────
+    let output_bytes: Vec<u8> = match encoding.to_lowercase().as_str() {
+        "utf-8" | "utf8" => csv_buf,
+        "utf-8-bom" | "utf8-bom" => {
+            let mut buf = vec![0xEFu8, 0xBBu8, 0xBFu8];
+            buf.extend_from_slice(&csv_buf);
+            buf
+        }
+        "shift-jis" | "shift_jis" | "sjis" | "cp932" => {
+            let utf8_str = String::from_utf8(csv_buf).unwrap();
+            let (encoded, _, had_errors) = encoding_rs::SHIFT_JIS.encode(&utf8_str);
+            if had_errors {
+                eprintln!("警告: Shift-JIS に変換できない文字が含まれていました（? に置換）");
+            }
+            encoded.into_owned()
+        }
+        other => {
+            eprintln!("Error: 未対応の文字コードです: '{}' （utf-8 / utf-8-bom / shift-jis）", other);
+            process::exit(1);
+        }
+    };
+
+    fs::write(&output_path, &output_bytes).unwrap_or_else(|e| {
+        eprintln!("Error: 出力ファイルを書き込めません '{}': {}", output_path.display(), e);
         process::exit(1);
     });
-    let buf_writer = BufWriter::new(file);
-    let mut csv_wtr = csv::Writer::from_writer(buf_writer);
-
-    csv_wtr.write_record(["n-gram", "出現回数", "出現頻度(%)"]).unwrap();
-
-    for (ngram, count) in output_slice {
-        let freq = if window_count > 0 {
-            (*count as f64 / window_count as f64) * 100.0
-        } else {
-            0.0
-        };
-        csv_wtr.write_record([ngram.as_str(), &count.to_string(), &format!("{:.4}", freq)]).unwrap();
-    }
-    csv_wtr.flush().unwrap();
 
     // ── 実行結果サマリー ────────────────────────────────────────────────────
     eprintln!();
@@ -181,6 +232,7 @@ fn main() {
     eprintln!("漢字含む n-gram 種類数: {}", total_types);
     eprintln!("漢字含む n-gram 総数  : {}", total_tokens);
     eprintln!("出力件数            : {}", output_slice.len());
+    eprintln!("文字コード          : {}", encoding);
     eprintln!("出力ファイル        : {}", output_path.display());
 }
 
@@ -310,7 +362,7 @@ mod tests {
     }
 
     #[test]
-    fn test_csv_output_format() {
+    fn test_csv_output_utf8() {
         use std::io::Cursor;
 
         let entries = vec![
@@ -335,6 +387,40 @@ mod tests {
         assert_eq!(lines[0], "n-gram,出現回数,出現頻度(%)");
         assert_eq!(lines[1], "漢字,10,66.6667");
         assert_eq!(lines[2], "字を,5,33.3333");
+    }
+
+    #[test]
+    fn test_csv_output_utf8_bom() {
+        let mut csv_buf: Vec<u8> = Vec::new();
+        {
+            let mut csv_wtr = csv::Writer::from_writer(&mut csv_buf);
+            csv_wtr.write_record(["n-gram", "出現回数"]).unwrap();
+            csv_wtr.write_record(["漢字", "1"]).unwrap();
+            csv_wtr.flush().unwrap();
+        }
+        let mut output = vec![0xEFu8, 0xBBu8, 0xBFu8];
+        output.extend_from_slice(&csv_buf);
+
+        // BOM が先頭に付いていること
+        assert_eq!(&output[..3], &[0xEF, 0xBB, 0xBF]);
+        // BOM を除いた部分が正しい UTF-8 であること
+        let content = String::from_utf8(output[3..].to_vec()).unwrap();
+        assert!(content.starts_with("n-gram,出現回数"));
+    }
+
+    #[test]
+    fn test_csv_output_shift_jis() {
+        let mut csv_buf: Vec<u8> = Vec::new();
+        {
+            let mut csv_wtr = csv::Writer::from_writer(&mut csv_buf);
+            csv_wtr.write_record(["漢字", "1"]).unwrap();
+            csv_wtr.flush().unwrap();
+        }
+        let utf8_str = String::from_utf8(csv_buf).unwrap();
+        let (encoded, _, had_errors) = encoding_rs::SHIFT_JIS.encode(&utf8_str);
+        assert!(!had_errors);
+        // Shift-JIS バイト列は UTF-8 として読めない（= 変換されている）
+        assert!(String::from_utf8(encoded.into_owned()).is_err());
     }
 
     #[test]

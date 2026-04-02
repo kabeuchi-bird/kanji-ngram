@@ -16,6 +16,12 @@ N=3
 # 上位何件まで出力するか（空欄にすると全件出力）
 TOP_K=""
 
+# 出力 CSV の文字コード
+#   utf-8       UTF-8（BOM なし）
+#   utf-8-bom   UTF-8（BOM あり、Excel 推奨）
+#   shift-jis   Shift-JIS（CP932）
+ENCODING="utf-8"
+
 # ============================================================
 #  以下は変更不要です
 # ============================================================
@@ -47,6 +53,9 @@ fi
 ARGS=("${CORPUS}" "${N}")
 if [[ -n "${TOP_K}" ]]; then
     ARGS+=("${TOP_K}")
+fi
+if [[ -n "${ENCODING}" ]]; then
+    ARGS+=("--encoding" "${ENCODING}")
 fi
 
 echo "実行中: kanji_ngram ${ARGS[*]}"
